@@ -9,6 +9,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
 
+
+# ================= AUTHOR FORMAT =================
+def format_author(user):
+    if user.username:
+        return f'<a href="https://t.me/{user.username}">@{user.username}</a>'
+    return f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
+
+
 # ================= ENV =================
 load_dotenv()
 
@@ -20,6 +28,7 @@ BOT_NAME = "Тех підтримка Подільський Фермер"
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
+
 # ================= FSM =================
 class TicketFSM(StatesGroup):
     shop = State()
@@ -29,8 +38,8 @@ class TicketFSM(StatesGroup):
     description = State()
     media = State()
 
-# ================= КНОПКИ =================
 
+# ================= КНОПКИ =================
 def problem_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -42,6 +51,7 @@ def problem_menu():
         ],
         resize_keyboard=True
     )
+
 
 def fridge_menu():
     return ReplyKeyboardMarkup(
@@ -55,6 +65,7 @@ def fridge_menu():
         resize_keyboard=True
     )
 
+
 def electric_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -65,6 +76,7 @@ def electric_menu():
         resize_keyboard=True
     )
 
+
 def critical_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -74,6 +86,7 @@ def critical_menu():
         resize_keyboard=True
     )
 
+
 def media_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -81,6 +94,7 @@ def media_menu():
         ],
         resize_keyboard=True
     )
+
 
 def contact_menu():
     return ReplyKeyboardMarkup(
@@ -90,38 +104,23 @@ def contact_menu():
         resize_keyboard=True
     )
 
-# ================= ЧЕКЛІСТИ =================
 
+# ================= CHECKLIST =================
 CHECKLIST = {
     "Холодильна вітрина":
-        "📋 Потрібно надіслати:\n"
-        "• Опис поломки\n"
-        "• Фото шильдіка\n"
-        "• Фото термоконтролера",
+        "📋 Потрібно надіслати:\n• Опис поломки\n• Фото шильдіка\n• Фото термоконтролера",
 
     "Холодильний регал":
-        "📋 Потрібно надіслати:\n"
-        "• Фото термоконтролера\n"
-        "• Фото шильдіка\n"
-        "• Опис",
+        "📋 Потрібно надіслати:\n• Фото термоконтролера\n• Фото шильдіка\n• Опис",
 
     "Морозилка":
-        "📋 Потрібно надіслати:\n"
-        "• Фото шильдіка\n"
-        "• Фото термоконтролера\n"
-        "• Опис",
+        "📋 Потрібно надіслати:\n• Фото шильдіка\n• Фото термоконтролера\n• Опис",
 
     "Холодильна шафа":
-        "📋 Потрібно надіслати:\n"
-        "• Фото термоконтролера\n"
-        "• Фото шильдіка\n"
-        "• Опис",
+        "📋 Потрібно надіслати:\n• Фото термоконтролера\n• Фото шильдіка\n• Опис",
 
     "Установка виносного холоду":
-        "📋 Потрібно надіслати:\n"
-        "• Відео роботи установки\n"
-        "• Фото лічильника\n"
-        "• Опис",
+        "📋 Потрібно надіслати:\n• Відео роботи установки\n• Фото лічильника\n• Опис",
 
     "Світло": "📋 Фото проблеми + коментар",
     "Розетка": "📋 Фото проблеми + коментар",
@@ -130,6 +129,7 @@ CHECKLIST = {
     "Сантехніка": "📋 Фото + коментар",
     "Двері": "📋 Фото + коментар",
 }
+
 
 # ================= START =================
 @dp.message(Command("start"))
@@ -145,6 +145,7 @@ async def start(message: Message, state: FSMContext):
 
     await state.set_state(TicketFSM.shop)
 
+
 # ================= SHOP =================
 @dp.message(TicketFSM.shop)
 async def shop(message: Message, state: FSMContext):
@@ -156,6 +157,7 @@ async def shop(message: Message, state: FSMContext):
     )
 
     await state.set_state(TicketFSM.problem)
+
 
 # ================= PROBLEM =================
 @dp.message(TicketFSM.problem)
@@ -169,29 +171,19 @@ async def problem(message: Message, state: FSMContext):
     elif message.text == "⚡ Електрика":
         await message.answer("Оберіть тип:", reply_markup=electric_menu())
 
-    elif message.text == "🔌 Генератор":
-        await state.update_data(subproblem="Генератор")
-        await message.answer(CHECKLIST["Генератор"])
+    elif message.text in ["🔌 Генератор", "🚿 Сантехніка", "🚪 Двері"]:
 
-        await message.answer("Оберіть критичність:", reply_markup=critical_menu())
-        await state.set_state(TicketFSM.critical)
-        return
+        sub = message.text.replace("🔌 ", "").replace("🚿 ", "").replace("🚪 ", "")
+        await state.update_data(subproblem=sub)
 
-    elif message.text == "🚿 Сантехніка":
-        await state.update_data(subproblem="Сантехніка")
-        await message.answer(CHECKLIST["Сантехніка"])
+        await message.answer(CHECKLIST[sub])
         await message.answer("Оберіть критичність:", reply_markup=critical_menu())
-        await state.set_state(TicketFSM.critical)
-        return
 
-    elif message.text == "🚪 Двері":
-        await state.update_data(subproblem="Двері")
-        await message.answer(CHECKLIST["Двері"])
-        await message.answer("Оберіть критичність:", reply_markup=critical_menu())
         await state.set_state(TicketFSM.critical)
         return
 
     await state.set_state(TicketFSM.subproblem)
+
 
 # ================= SUBPROBLEM =================
 @dp.message(TicketFSM.subproblem)
@@ -205,6 +197,7 @@ async def subproblem(message: Message, state: FSMContext):
     await message.answer("Оберіть критичність:", reply_markup=critical_menu())
     await state.set_state(TicketFSM.critical)
 
+
 # ================= CRITICAL =================
 @dp.message(TicketFSM.critical)
 async def critical(message: Message, state: FSMContext):
@@ -213,6 +206,7 @@ async def critical(message: Message, state: FSMContext):
 
     await message.answer("✏️ Опишіть проблему:")
     await state.set_state(TicketFSM.description)
+
 
 # ================= DESCRIPTION =================
 @dp.message(TicketFSM.description)
@@ -228,6 +222,7 @@ async def description(message: Message, state: FSMContext):
 
     await state.set_state(TicketFSM.media)
 
+
 # ================= MEDIA =================
 @dp.message(TicketFSM.media, F.photo | F.video)
 async def media(message: Message, state: FSMContext):
@@ -242,6 +237,7 @@ async def media(message: Message, state: FSMContext):
 
     await state.update_data(media=media)
 
+
 # ================= NEXT =================
 @dp.message(TicketFSM.media, F.text == "➡️ Наступний крок")
 async def next_step(message: Message, state: FSMContext):
@@ -254,6 +250,7 @@ async def next_step(message: Message, state: FSMContext):
 
     await message.answer("Поділіться номером телефону:", reply_markup=contact_menu())
 
+
 # ================= CONTACT =================
 @dp.message(F.contact)
 async def contact(message: Message, state: FSMContext):
@@ -261,7 +258,7 @@ async def contact(message: Message, state: FSMContext):
     data = await state.get_data()
     phone = message.contact.phone_number
 
-    user_link = f'<a href="tg://user?id={message.from_user.id}">{message.from_user.full_name}</a>'
+    author = format_author(message.from_user)
 
     text = (
         "🛠 <b>НОВИЙ ТІКЕТ</b>\n\n"
@@ -270,7 +267,7 @@ async def contact(message: Message, state: FSMContext):
         f"⚠️ Критичність: {data['critical']}\n"
         f"📝 Опис:\n{data['description']}\n\n"
         f"📞 Контакт: {phone}\n"
-        f"👤 Автор: {user_link}"
+        f"👤 Автор: {author}\n"
     )
 
     await bot.send_message(MASTER_CHAT_ID, text, parse_mode="HTML")
@@ -289,9 +286,11 @@ async def contact(message: Message, state: FSMContext):
     await message.answer("Вкажіть найменування магазину:")
     await state.set_state(TicketFSM.shop)
 
+
 # ================= RUN =================
 async def main():
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
