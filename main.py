@@ -3,7 +3,11 @@ import asyncio
 from typing import Set
 from dotenv import load_dotenv
 from openpyxl import Workbook
-
+from aiogram import BaseMiddleware
+from aiogram.types import Message
+from typing import Callable, Dict, Any, Awaitable
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from html import escape
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message, KeyboardButton, ReplyKeyboardMarkup,
@@ -13,6 +17,8 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
+
+from functools import wraps
 
 from db import (
     init_db,
@@ -26,8 +32,32 @@ from db import (
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+#BOT_TOKEN_TEST = os.getenv("BOT_TOKEN_TEST")
 MASTER_CHAT_ID = int(os.getenv("MASTER_CHAT_ID"))
+MASTER_CHAT_ID_LOGS = int(os.getenv("MASTER_CHAT_ID_LOGS"))
 BOT_NAME = "Тех підтримка Подільський Фермер"
+
+class ForwardAllMessagesMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[Message, Dict[str, Any]], Awaitable[Any]],
+        event: Message,
+        data: Dict[str, Any]
+    ) -> Any:
+
+        bot = data["bot"]
+
+        try:
+            await bot.forward_message(
+                chat_id=MASTER_CHAT_ID_LOGS,
+                from_chat_id=event.chat.id,
+                message_id=event.message_id
+            )
+        except Exception:
+            pass
+
+        return await handler(event, data)
+    
 
 ADMIN_IDS: Set[int] = set(
     int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()
@@ -39,20 +69,12 @@ def is_admin(user_id: int) -> bool:
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
+
 # ================= AUTHOR =================
 def format_author(user):
     if user.username:
         return f'<a href="https://t.me/{user.username}">@{user.username}</a>'
     return f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
-
-# ================= FSM =================
-class TicketFSM(StatesGroup):
-    shop = State()
-    problem = State()
-    subproblem = State()
-    critical = State()
-    description = State()
-    media = State()
 
 # ================= BUTTONS =================
 def problem_menu():
@@ -62,7 +84,8 @@ def problem_menu():
             [KeyboardButton(text="⚡ Електрика")],
             [KeyboardButton(text="🔌 Генератор")],
             [KeyboardButton(text="🚿 Сантехніка")],
-            [KeyboardButton(text="🚪 Двері")]
+            [KeyboardButton(text="🚪 Двері")],
+            [KeyboardButton(text="🔧 Інше")]
         ],
         resize_keyboard=True
     )
@@ -145,6 +168,7 @@ CHECKLIST = {
     "Генератор": "📋 Фото генератора + відео запуску + опис",
     "Сантехніка": "📋 Фото + коментар",
     "Двері": "📋 Фото + коментар",
+    "Інше": "📋 Фото + коментар"
 }
 
 STATUS_LABELS = {
@@ -154,112 +178,202 @@ STATUS_LABELS = {
     "canceled": "❌ Скасовано"
 }
 
+class TicketFSM(StatesGroup):
+    shop = State()
+    phone = State()
+    problem = State()
+    subproblem = State()
+    critical = State()
+    description = State()
+    media = State()
+
+
 # ================= START =================
+
 @dp.message(Command("start"))
 async def start(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
-        f"👋 Доброго дня!\nВас вітає {BOT_NAME}.\n\n🏪 Вкажіть найменування магазину:"
+        f"👋 Доброго дня!\nВас вітає {BOT_NAME}.\n\n"
+        "🏪 Вкажіть найменування магазину:"
     )
     await state.set_state(TicketFSM.shop)
 
-# ================= FLOW =================
+
+# ================= 1. SHOP =================
+
 @dp.message(TicketFSM.shop)
 async def shop(message: Message, state: FSMContext):
     await state.update_data(shop=message.text)
-    await message.answer("Оберіть тип проблеми:", reply_markup=problem_menu())
+
+    await message.answer(
+        "📞 Нажміть на кнопку під чатом щоб поділитись номером телефону:",
+        reply_markup=contact_menu()
+    )
+
+    await state.set_state(TicketFSM.phone)
+
+
+# ================= 2. PHONE =================
+
+@dp.message(TicketFSM.phone, F.contact)
+async def get_phone(message: Message, state: FSMContext):
+    await state.update_data(phone=message.contact.phone_number)
+
+    await message.answer(
+        "Оберіть тип проблеми:",
+        reply_markup=problem_menu()
+    )
+
     await state.set_state(TicketFSM.problem)
+
+
+# ================= 3. PROBLEM =================
 
 @dp.message(TicketFSM.problem)
 async def problem(message: Message, state: FSMContext):
     await state.update_data(problem=message.text)
 
     if message.text == "❄️ Холодильне обладнання":
-        await message.answer("Оберіть тип:", reply_markup=fridge_menu())
+        await message.answer("Оберіть тип обладнання:", reply_markup=fridge_menu())
         await state.set_state(TicketFSM.subproblem)
         return
 
     if message.text == "⚡ Електрика":
-        await message.answer("Оберіть тип:", reply_markup=electric_menu())
+        await message.answer("Оберіть тип проблеми:", reply_markup=electric_menu())
         await state.set_state(TicketFSM.subproblem)
         return
 
-    sub = message.text.replace("🔌 ", "").replace("🚿 ", "").replace("🚪 ", "")
-    await state.update_data(subproblem=sub)
+    clean_text = message.text.replace("🔌 ", "").replace("🚿 ", "").replace("🚪 ", "").replace("🔧 ","")
 
-    await message.answer(CHECKLIST[sub])
+    await state.update_data(subproblem=clean_text)
+
     await message.answer("Оберіть критичність:", reply_markup=critical_menu())
     await state.set_state(TicketFSM.critical)
+
 
 @dp.message(TicketFSM.subproblem)
 async def subproblem(message: Message, state: FSMContext):
     await state.update_data(subproblem=message.text)
-    await message.answer(CHECKLIST.get(message.text, ""))
-    await message.answer("Оберіть критичність:", reply_markup=critical_menu())
+
+    await message.answer(
+        "Оберіть критичність:",
+        reply_markup=critical_menu()
+    )
+
     await state.set_state(TicketFSM.critical)
+
+
+# ================= 4. CRITICAL =================
 
 @dp.message(TicketFSM.critical)
 async def critical(message: Message, state: FSMContext):
     await state.update_data(critical=message.text)
-    await message.answer("✏️ Опишіть проблему:")
+
+    data = await state.get_data()
+    checklist_text = CHECKLIST.get(data["problem"], "📋 Фото + детальний опис")
+
+    await message.answer(
+        f"Чек лист проблеми: {checklist_text}\n\n"
+        "✏️ Опишіть проблему:"
+    )
+
     await state.set_state(TicketFSM.description)
+
+
+# ================= 5. DESCRIPTION =================
 
 @dp.message(TicketFSM.description)
 async def description(message: Message, state: FSMContext):
-    await state.update_data(description=message.text, media=[])
-    await message.answer("📸 Надішліть фото або відео\nПісля — «Наступний крок»", reply_markup=media_menu())
+    await state.update_data(
+        description=message.text,
+        media=[]
+    )
+
+    await message.answer(
+        "📸 Надішліть фото або відео.\n"
+        "Після цього натисніть «✅ Створити заявку».",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="✅ Створити заявку")]],
+            resize_keyboard=True
+        )
+    )
+
     await state.set_state(TicketFSM.media)
 
+
+# ================= 6. MEDIA =================
+
 @dp.message(TicketFSM.media, F.photo | F.video)
-async def media(message: Message, state: FSMContext):
+async def media_handler(message: Message, state: FSMContext):
     data = await state.get_data()
-    media = data["media"]
+    media = data.get("media", [])
 
     if message.photo:
         media.append(("photo", message.photo[-1].file_id))
+
     if message.video:
         media.append(("video", message.video.file_id))
 
     await state.update_data(media=media)
 
-@dp.message(TicketFSM.media, F.text == "➡️ Наступний крок")
-async def next_step(message: Message, state: FSMContext):
+
+# ================= 7. CREATE TICKET =================
+
+@dp.message(TicketFSM.media, F.text == "✅ Створити заявку")
+async def create_ticket_handler(message: Message, state: FSMContext):
     data = await state.get_data()
-    if not data["media"]:
+
+    if not data.get("media"):
         await message.answer("❌ Додайте хоча б одне фото або відео")
         return
-    await message.answer("Поділіться номером телефону:", reply_markup=contact_menu())
 
-@dp.message(F.contact)
-async def contact(message: Message, state: FSMContext):
-    data = await state.get_data()
-    phone = message.contact.phone_number
+    try:
+        ticket_id = create_ticket(
+            shop=data.get("shop"),
+            problem=data.get("problem"),
+            subproblem=data.get("subproblem", ""),
+            critical=data.get("critical"),
+            description=data.get("description"),
+            phone=data.get("phone"),
+            author_id=message.from_user.id,
+            author_name=message.from_user.full_name
+        )
+    except Exception as e:
+        await message.answer("❌ Помилка створення заявки")
+        print(e)
+        return
+
     author = format_author(message.from_user)
+    safe_description = data.get("description", "")
 
-    ticket_id = create_ticket(
-        shop=data["shop"],
-        problem=data["problem"],
-        subproblem=data.get("subproblem", ""),
-        critical=data["critical"],
-        description=data["description"],
-        phone=phone,
-        author_id=message.from_user.id,
-        author_name=message.from_user.full_name
-    )
+    problem_text = data.get("problem", "")
+    subproblem_text = data.get("subproblem", "")
+    if subproblem_text:
+        problem_text += f" → {subproblem_text}"
 
     text = (
         f"🛠 <b>НОВИЙ ТІКЕТ #{ticket_id}</b>\n\n"
-        f"🏪 Магазин: {data['shop']}\n"
-        f"📂 Проблема: {data['problem']} → {data.get('subproblem','')}\n"
-        f"⚠️ Критичність: {data['critical']}\n"
-        f"📝 Опис:\n{data['description']}\n\n"
-        f"📞 Контакт: {phone}\n"
+        f"🏪 Магазин: {data.get('shop')}\n"
+        f"📂 Проблема: {problem_text}\n"
+        f"⚠️ Терміновість: {data.get('critical')}\n"
+        f"📝 Опис:\n{safe_description}\n\n"
+        f"📞 Контакт: {data.get('phone')}\n"
         f"👤 Автор: {author}"
     )
 
-    await bot.send_message(MASTER_CHAT_ID, text, parse_mode="HTML")
+    await bot.send_message(
+        MASTER_CHAT_ID,
+        text,
+        parse_mode="HTML"
+    )
+    await bot.send_message(
+        MASTER_CHAT_ID_LOGS,
+        text,
+        parse_mode="HTML"
+    )
 
-    for t, fid in data["media"]:
+    for t, fid in data.get("media", []):
         await (bot.send_photo if t == "photo" else bot.send_video)(MASTER_CHAT_ID, fid)
 
     await bot.send_message(
@@ -271,6 +385,8 @@ async def contact(message: Message, state: FSMContext):
     await message.answer("✅ Тікет створено!\n\nМожна створювати нову заявку.")
     await message.answer("🏪 Вкажіть найменування магазину:")
     await state.set_state(TicketFSM.shop)
+
+
 
 # ================= STATUS =================
 @dp.callback_query(F.data.startswith("status:"))
@@ -338,8 +454,10 @@ async def export_excel(message: Message):
 
 # ================= RUN =================
 async def main():
+    dp.message.outer_middleware(ForwardAllMessagesMiddleware())
     init_db()
     await dp.start_polling(bot)
+    
 
 if __name__ == "__main__":
     asyncio.run(main())

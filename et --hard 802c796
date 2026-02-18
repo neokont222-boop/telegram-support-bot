@@ -1,0 +1,11 @@
+[33mb92aaae[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m fix: aiogram 3.7 bot init + kyiv time
+[33m53032da[m Fix aiogram 3.7 Bot init (DefaultBotProperties)
+[33m710a072[m stable bot with kyiv time and ticket id
+[33m6735325[m Add requirements
+[33m802c796[m[33m ([m[1;33mtag: [m[1;33mv2.0[m[33m)[m Update bot: admin comments + notifications
+[33mdde4020[m add init_db and ticket database logic
+[33mcafbfcb[m add openpyxl for excel export
+[33m8cab02b[m admin panel + statuses + excel
+[33mabf1e38[m[33m ([m[1;33mtag: [m[1;33mv1.0-stable[m[33m)[m author fix
+[33mc1881fc[m add dotenv
+[33mc85b00e[m first bot version

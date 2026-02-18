@@ -24,13 +24,13 @@ def init_db():
             author_id INTEGER,
             author_name TEXT,
             status TEXT DEFAULT 'new',
+            updated_by TEXT,
             admin_comment TEXT,
             created_at TEXT
         )
         """)
 
         conn.commit()
-
 
 def create_ticket(
     shop, problem, subproblem, critical,
@@ -153,3 +153,11 @@ def get_tickets_by_status(status=None):
             """)
 
         return cursor.fetchall()
+def update_ticket_status_with_admin(ticket_id: int, status: str, admin_name: str):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE tickets SET status = ?, updated_by = ? WHERE id = ?",
+            (status, admin_name, ticket_id)
+        )
+        conn.commit()
